@@ -1,11 +1,6 @@
 import { useRef, useState } from 'react'
 import BarcodeScanner from './BarcodeScanner'
 
-/**
- * Input inteligente para código de barras.
- * - Leitor USB/Bluetooth: digita rápido e pressiona Enter → dispara onScan
- * - Câmera: botão abre BarcodeScanner modal → dispara onScan ao detectar
- */
 export default function BarcodeInput({ value, onChange, onScan, placeholder = 'Código de barras...' }) {
   const [cameraOpen, setCameraOpen] = useState(false)
   const lastKey = useRef(0)
@@ -17,15 +12,19 @@ export default function BarcodeInput({ value, onChange, onScan, placeholder = 'C
     lastKey.current = now
 
     if (e.key === 'Enter') {
-      // USB scanner: digitou rápido (< 60ms entre teclas) e pressionou Enter
-      if (buffer.current.length >= 4 && delta < 100) {
-        e.preventDefault()
-        onScan?.(buffer.current)
+      e.preventDefault()
+      // USB scanner: buffer acumulado com teclas rápidas
+      // Digitação manual: usa o value do input diretamente
+      const code = (buffer.current.length >= 4 && delta < 100)
+        ? buffer.current
+        : value
+
+      if (code && code.trim().length >= 3) {
+        onScan?.(code.trim())
         onChange?.('')
       }
       buffer.current = ''
     } else {
-      // Acumula caracteres enquanto digitação for rápida (scanner)
       buffer.current = delta < 60 ? buffer.current + e.key : e.key
     }
   }
@@ -39,7 +38,6 @@ export default function BarcodeInput({ value, onChange, onScan, placeholder = 'C
     <>
       <div style={{ display: 'flex', gap: 8 }}>
         <div className="search-wrap" style={{ flex: 1 }}>
-          {/* Ícone de barcode */}
           <svg className="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M3 5v14M7 5v14M13 5v14M17 5v14M21 5v14M11 5v14"/>
           </svg>
@@ -49,9 +47,9 @@ export default function BarcodeInput({ value, onChange, onScan, placeholder = 'C
             onChange={(e) => onChange?.(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
+            autoFocus
           />
         </div>
-        {/* Botão câmera */}
         <button
           className="btn btn-ghost"
           onClick={() => setCameraOpen(true)}

@@ -9,12 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.1",
     "@zxing/browser": "^0.2.0",
     "@zxing/library": "^0.22.0",
     "jsbarcode": "^3.12.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
+    "recharts": "^3.8.1",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
