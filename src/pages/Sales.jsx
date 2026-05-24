@@ -149,6 +149,8 @@ export default function Sales() {
   const findByBarcode = useStore((s) => s.findByBarcode)
   const settings      = useStore((s) => s.settings)
   const addSale       = useStore((s) => s.addSale)
+  const addFiado      = useStore((s) => s.addFiado)
+  const customers     = useStore((s) => s.customers)
   const transactions  = useStore((s) => s.transactions)
   const products      = useStore((s) => s.products)
 
@@ -161,6 +163,8 @@ export default function Sales() {
   const [toast, setToast] = useState(null)
   const [finishing, setFinishing] = useState(false)
   const [pixModal,  setPixModal]  = useState(false)
+  const [fiado,     setFiado]     = useState(false)
+  const [customerId, setCustomerId] = useState('')
 
   const showToast = (type, msg) => {
     setToast({ type, msg })
@@ -226,11 +230,17 @@ export default function Sales() {
     setFinishing(true)
     setPixModal(false)
     try {
-      await addSale(cart, paymentMethod, discountAmount)
+      if (fiado && customerId) {
+        await addFiado(cart, customerId, discountAmount)
+      } else {
+        await addSale(cart, paymentMethod, discountAmount)
+      }
       setCart([])
       setSelectedId(null)
       setReceived('')
       setDiscount({ mode: '%', value: '' })
+      setFiado(false)
+      setCustomerId('')
       showToast('success', 'Venda finalizada!')
     } catch (e) {
       console.error('[Sales] Erro ao finalizar:', e)
@@ -238,16 +248,19 @@ export default function Sales() {
     } finally {
       setFinishing(false)
     }
-  }, [cart, paymentMethod, discountAmount, addSale])
+  }, [cart, paymentMethod, discountAmount, addSale, addFiado, fiado, customerId])
 
   const handleFinalize = useCallback(() => {
     if (!cart.length || finishing) return
-    if (paymentMethod === 'pix') {
-      setPixModal(true)  // Mostra QR Code PIX
+    if (fiado) {
+      if (!customerId) { showToast('error', 'Selecione um cliente para o fiado'); return }
+      doFinalize()
+    } else if (paymentMethod === 'pix') {
+      setPixModal(true)
     } else {
       doFinalize()
     }
-  }, [cart, finishing, paymentMethod, doFinalize])
+  }, [cart, finishing, paymentMethod, fiado, customerId, doFinalize])
 
   /* ── Atalhos de teclado ── */
   useEffect(() => {
@@ -394,8 +407,31 @@ export default function Sales() {
               </span>
             </div>
 
+            {/* Fiado toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: fiado ? 'var(--warning-dim)' : 'var(--bg-3)', borderRadius: 8, border: `1px solid ${fiado ? 'var(--warning)' : 'var(--border)'}`, cursor: 'pointer' }}
+              onClick={() => { setFiado((v) => !v); setCustomerId('') }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 500, color: fiado ? 'var(--warning)' : 'var(--text-2)' }}>📒 Venda no fiado</p>
+                <p style={{ fontSize: 11, color: 'var(--text-3)' }}>Cliente paga depois</p>
+              </div>
+              <div style={{ width: 36, height: 20, borderRadius: 99, background: fiado ? 'var(--warning)' : 'var(--bg-3)', border: '1px solid var(--border)', position: 'relative', flexShrink: 0 }}>
+                <span style={{ position: 'absolute', top: 2, left: fiado ? 18 : 2, width: 14, height: 14, borderRadius: '50%', background: fiado ? '#fff' : 'var(--text-3)', transition: 'left .2s' }} />
+              </div>
+            </div>
+
+            {/* Cliente (fiado) */}
+            {fiado && (
+              <div className="field">
+                <label>Cliente *</label>
+                <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+                  <option value="">Selecionar cliente...</option>
+                  {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+
             {/* Formas de pagamento */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            {!fiado && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
               {PAYMENTS.map(({ key, label }) => (
                 <button key={key} onClick={() => { setPaymentMethod(key); setReceived('') }}
                   style={{
@@ -410,7 +446,7 @@ export default function Sales() {
                   {label}
                 </button>
               ))}
-            </div>
+            </div>}
 
             {/* Troco (só Dinheiro) */}
             {paymentMethod === 'dinheiro' && (

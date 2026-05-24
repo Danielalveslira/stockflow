@@ -5,6 +5,8 @@ const toProduct = (r) => r && ({
   responsible: r.responsible ?? '', qty: r.qty ?? 0,
   minQty: r.min_qty ?? 0, cost: Number(r.cost ?? 0),
   price: Number(r.price ?? 0), barcode: r.barcode ?? '',
+  expiryDate: r.expiry_date ?? null,
+  leadTimeDays: r.lead_time_days ?? 3,
   createdAt: r.created_at,
 })
 
@@ -125,7 +127,13 @@ export async function insertPurchase({ supplierId, date, notes, items }) {
     qty: i.qty,
     cost: i.cost,
   }))
-  await supabase.from('purchase_items').insert(rows)
+  const { error: itemsError } = await supabase.from('purchase_items').insert(rows)
+  if (itemsError) {
+    console.error('[db] insertPurchase items:', itemsError.message)
+    // Rollback: remove o pedido criado
+    await supabase.from('purchases').delete().eq('id', purchase.id)
+    return null
+  }
   return purchase
 }
 
@@ -156,4 +164,107 @@ export async function setSetting(key, value) {
     .from('store_settings')
     .upsert({ key, value }, { onConflict: 'key' })
   if (error) console.error('[db] setSetting:', error.message)
+}
+
+// ── Customers ─────────────────────────────────────────
+
+export async function getCustomers() {
+  const { data, error } = await supabase.from('customers').select('*, debts:customer_debts(*)').order('name')
+  if (error) { console.error('[db] getCustomers:', error.message); return [] }
+  return data
+}
+
+export async function insertCustomer(c) {
+  const { data, error } = await supabase.from('customers')
+    .insert({ name: c.name, phone: c.phone ?? '', notes: c.notes ?? '' })
+    .select().single()
+  if (error) { console.error('[db] insertCustomer:', error.message); return null }
+  return data
+}
+
+export async function updateCustomer(id, c) {
+  const { data, error } = await supabase.from('customers')
+    .update({ name: c.name, phone: c.phone ?? '', notes: c.notes ?? '' })
+    .eq('id', id).select().single()
+  if (error) { console.error('[db] updateCustomer:', error.message); return null }
+  return data
+}
+
+export async function deleteCustomer(id) {
+  const { error } = await supabase.from('customers').delete().eq('id', id)
+  if (error) console.error('[db] deleteCustomer:', error.message)
+}
+
+export async function insertDebt(debt) {
+  const { data, error } = await supabase.from('customer_debts')
+    .insert({
+      customer_id:  debt.customerId,
+      description:  debt.description,
+      amount:       debt.amount,
+      paid_amount:  0,
+      status:       'open',
+      sale_date:    debt.saleDate ?? new Date().toISOString().split('T')[0],
+    }).select().single()
+  if (error) { console.error('[db] insertDebt:', error.message); return null }
+  return data
+}
+
+export async function payDebt(debtId, paidAmount, totalAmount) {
+  const newPaid  = paidAmount
+  const status   = newPaid >= totalAmount ? 'paid' : 'partial'
+  const { data, error } = await supabase.from('customer_debts')
+    .update({ paid_amount: newPaid, status })
+    .eq('id', debtId).select().single()
+  if (error) { console.error('[db] payDebt:', error.message); return null }
+  return data
+}
+
+// ── Bills ─────────────────────────────────────────────
+
+export async function getBills() {
+  const { data, error } = await supabase.from('bills').select('*').order('due_date')
+  if (error) { console.error('[db] getBills:', error.message); return [] }
+  // Auto-mark overdue
+  const today = new Date().toISOString().split('T')[0]
+  return data.map((b) => ({
+    ...b,
+    status: b.status === 'pending' && b.due_date < today ? 'overdue' : b.status,
+  }))
+}
+
+export async function insertBill(b) {
+  const { data, error } = await supabase.from('bills')
+    .insert({
+      description: b.description, amount: b.amount, due_date: b.dueDate,
+      category: b.category ?? 'Operacional', recurrence: b.recurrence ?? 'none',
+      notes: b.notes ?? '', status: 'pending',
+    }).select().single()
+  if (error) { console.error('[db] insertBill:', error.message); return null }
+  return data
+}
+
+export async function payBill(billId, amount) {
+  // Idempotência: não paga se já estiver pago
+  const { data: existing } = await supabase.from('bills').select('status').eq('id', billId).single()
+  if (existing?.status === 'paid') return existing
+
+  const { data, error } = await supabase.from('bills')
+    .update({ status: 'paid', paid_at: new Date().toISOString() })
+    .eq('id', billId).select().single()
+  if (error) { console.error('[db] payBill:', error.message); return null }
+
+  // Register expense in transactions
+  await supabase.from('transactions').insert({
+    type: 'expense', description: data.description,
+    category: data.category, amount: data.amount,
+    date: new Date().toISOString().split('T')[0],
+    responsible: 'Contas', payment_method: 'dinheiro',
+  })
+
+  return data
+}
+
+export async function deleteBill(id) {
+  const { error } = await supabase.from('bills').delete().eq('id', id)
+  if (error) console.error('[db] deleteBill:', error.message)
 }

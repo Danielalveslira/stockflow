@@ -139,6 +139,8 @@ export default function Reports() {
   const products     = useStore((s) => s.products)
   const transactions = useStore((s) => s.transactions)
   const purchases    = useStore((s) => s.purchases)
+  const bills        = useStore((s) => s.bills)
+  const customers    = useStore((s) => s.customers)
 
   const [period, setPeriod] = useState('30')
 
@@ -252,6 +254,22 @@ export default function Reports() {
     }).sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate)),
     [products]
   )
+
+
+  /* ── DRE Gerencial ─────────────────────── */
+  const dreData = useMemo(() => {
+    const grossRevenue = filteredTx.filter((t) => t.type === 'income' && t.category === 'Vendas').reduce((s, t) => s + t.amount, 0)
+    // CMV = receita × (1 - margem_media)
+    const avgMargin = products.length
+      ? products.reduce((s, p) => s + (p.price > 0 ? (p.price - p.cost) / p.price : 0), 0) / products.length
+      : 0.3
+    const cmv = grossRevenue * (1 - avgMargin)
+    const grossProfit = grossRevenue - cmv
+    const opExpenses = filteredTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+    const netProfit = grossProfit - opExpenses
+    const totalFiado = customers.reduce((s, c) => s + (c.debts ?? []).filter((d) => d.status !== 'paid').reduce((ds, d) => ds + (d.amount - (d.paid_amount ?? 0)), 0), 0)
+    return { grossRevenue: parseFloat(grossRevenue.toFixed(2)), cmv: parseFloat(cmv.toFixed(2)), grossProfit: parseFloat(grossProfit.toFixed(2)), opExpenses: parseFloat(opExpenses.toFixed(2)), netProfit: parseFloat(netProfit.toFixed(2)), totalFiado: parseFloat(totalFiado.toFixed(2)) }
+  }, [filteredTx, products, customers])
 
   const axisProps = { tick: { fill: C.text3, fontSize: 11 }, axisLine: false, tickLine: false }
 
@@ -521,6 +539,67 @@ export default function Reports() {
         </div>
       </SectionCard>
 
+
+
+      {/* ── DRE GERENCIAL ── */}
+      <SectionCard title="DRE Gerencial — Resultado do Período">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {/* Receita Bruta */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600 }}>Receita Bruta de Vendas</p>
+              <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Total de vendas no caixa</p>
+            </div>
+            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--primary)', fontFamily: 'DM Mono, monospace' }}>{fmt(dreData.grossRevenue)}</span>
+          </div>
+
+          {/* CMV */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--danger)' }}>(-) Custo das Mercadorias Vendidas</p>
+              <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Estimado pela margem média dos produtos</p>
+            </div>
+            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--danger)', fontFamily: 'DM Mono, monospace' }}>- {fmt(dreData.cmv)}</span>
+          </div>
+
+          {/* Lucro Bruto */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', margin: '8px 0', background: 'var(--bg-3)', borderRadius: 8 }}>
+            <p style={{ fontSize: 14, fontWeight: 700 }}>= Lucro Bruto</p>
+            <span style={{ fontSize: 18, fontWeight: 700, color: dreData.grossProfit >= 0 ? 'var(--primary)' : 'var(--danger)', fontFamily: 'DM Mono, monospace' }}>{fmt(dreData.grossProfit)}</span>
+          </div>
+
+          {/* Despesas Operacionais */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--danger)' }}>(-) Despesas Operacionais</p>
+              <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Contas pagas + outras despesas lançadas</p>
+            </div>
+            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--danger)', fontFamily: 'DM Mono, monospace' }}>- {fmt(dreData.opExpenses)}</span>
+          </div>
+
+          {/* Resultado */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 16px', margin: '8px 0', background: dreData.netProfit >= 0 ? 'var(--primary-dim)' : 'var(--danger-dim)', borderRadius: 8, border: `1px solid ${dreData.netProfit >= 0 ? 'var(--primary)' : 'var(--danger)'}44` }}>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 700, color: dreData.netProfit >= 0 ? 'var(--primary)' : 'var(--danger)' }}>= Resultado Operacional</p>
+              <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Lucro ou prejuízo do período</p>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: 24, fontWeight: 800, color: dreData.netProfit >= 0 ? 'var(--primary)' : 'var(--danger)', fontFamily: 'DM Mono, monospace' }}>{fmt(dreData.netProfit)}</span>
+              <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                Margem: {dreData.grossRevenue > 0 ? ((dreData.netProfit / dreData.grossRevenue) * 100).toFixed(1) : 0}%
+              </p>
+            </div>
+          </div>
+
+          {/* Fiado em aberto */}
+          {dreData.totalFiado > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'var(--warning-dim)', borderRadius: 8, marginTop: 8 }}>
+              <p style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 500 }}>📒 Fiado em aberto (a receber)</p>
+              <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--warning)', fontFamily: 'DM Mono, monospace' }}>{fmt(dreData.totalFiado)}</span>
+            </div>
+          )}
+        </div>
+      </SectionCard>
 
       {/* ── CLASSIFICAÇÃO ABC + GIRO ── */}
       <SectionCard title="Classificação ABC & Giro de Estoque">
