@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useStore } from '../store/useStore'
 import PageHeader from '../components/layout/PageHeader'
 import BarcodeInput from '../components/barcode/BarcodeInput'
+import PixQRModal from '../components/ui/PixQRModal'
 import { fmt } from '../utils/format'
 
 const PAYMENTS = [
@@ -146,6 +147,7 @@ function CartRow({ item, selected, onSelect, onQty, onRemove }) {
 /* ── Página principal ────────────────────────────────── */
 export default function Sales() {
   const findByBarcode = useStore((s) => s.findByBarcode)
+  const settings      = useStore((s) => s.settings)
   const addSale       = useStore((s) => s.addSale)
   const transactions  = useStore((s) => s.transactions)
   const products      = useStore((s) => s.products)
@@ -158,6 +160,7 @@ export default function Sales() {
   const [discount, setDiscount] = useState({ mode: '%', value: '' })
   const [toast, setToast] = useState(null)
   const [finishing, setFinishing] = useState(false)
+  const [pixModal,  setPixModal]  = useState(false)
 
   const showToast = (type, msg) => {
     setToast({ type, msg })
@@ -219,9 +222,9 @@ export default function Sales() {
   const insufficientPayment = paymentMethod === 'dinheiro' && received !== '' && receivedNum < total
 
   /* ── Finalizar venda ── */
-  const handleFinalize = useCallback(async () => {
-    if (!cart.length || finishing) return
+  const doFinalize = useCallback(async () => {
     setFinishing(true)
+    setPixModal(false)
     try {
       await addSale(cart, paymentMethod, discountAmount)
       setCart([])
@@ -235,7 +238,16 @@ export default function Sales() {
     } finally {
       setFinishing(false)
     }
-  }, [cart, paymentMethod, discountAmount, addSale, finishing])
+  }, [cart, paymentMethod, discountAmount, addSale])
+
+  const handleFinalize = useCallback(() => {
+    if (!cart.length || finishing) return
+    if (paymentMethod === 'pix') {
+      setPixModal(true)  // Mostra QR Code PIX
+    } else {
+      doFinalize()
+    }
+  }, [cart, finishing, paymentMethod, doFinalize])
 
   /* ── Atalhos de teclado ── */
   useEffect(() => {
@@ -500,6 +512,16 @@ export default function Sales() {
           </div>
         </div>
       </div>
+
+      {/* PIX QR Modal */}
+      {pixModal && (
+        <PixQRModal
+          amount={total}
+          settings={settings}
+          onClose={() => setPixModal(false)}
+          onConfirm={doFinalize}
+        />
+      )}
 
       {/* Toast */}
       {toast && (

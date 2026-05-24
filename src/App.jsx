@@ -11,6 +11,10 @@ import Inventory from './pages/Inventory'
 import CashFlow from './pages/CashFlow'
 import Sales from './pages/Sales'
 import Users from './pages/Users'
+import Reports from './pages/Reports'
+import Settings from './pages/Settings'
+import Purchases from './pages/Purchases'
+import Suppliers from './pages/Suppliers'
 
 function Spinner() {
   return (
@@ -91,10 +95,14 @@ function AppShell({ theme, toggleTheme }) {
         <main className="app-main">
           <Routes>
             <Route path="/"          element={<Navigate to="/sales" replace />} />
+            <Route path="/reports" element={<ProtectedRoute page="reports"><Reports /></ProtectedRoute>} />
             <Route path="/dashboard" element={<ProtectedRoute page="dashboard"><Dashboard /></ProtectedRoute>} />
             <Route path="/sales"     element={<ProtectedRoute page="sales"><Sales /></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute page="inventory"><Inventory /></ProtectedRoute>} />
             <Route path="/cashflow"  element={<ProtectedRoute page="cashflow"><CashFlow /></ProtectedRoute>} />
+            <Route path="/purchases" element={<ProtectedRoute page="purchases"><Purchases /></ProtectedRoute>} />
+            <Route path="/suppliers" element={<ProtectedRoute page="suppliers"><Suppliers /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute page="settings"><Settings /></ProtectedRoute>} />
             <Route path="/users"     element={<ProtectedRoute page="users"><Users /></ProtectedRoute>} />
           </Routes>
         </main>
