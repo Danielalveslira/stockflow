@@ -6,6 +6,8 @@ export const useStore = create((set, get) => ({
   transactions: [],
   suppliers:    [],
   purchases:    [],
+  customers:    [],
+  bills:        [],
   loading: true,
   error:   null,
   settings: { pix_key: '', pix_type: 'phone', pix_name: 'Minha Loja', pix_city: 'Cidade' },
@@ -13,12 +15,13 @@ export const useStore = create((set, get) => ({
   loadAll: async () => {
     set({ loading: true, error: null })
     try {
-      const [products, transactions, suppliers, purchases, settings] = await Promise.all([
+      const [products, transactions, suppliers, purchases, customers, bills, settings] = await Promise.all([
         db.getProducts(), db.getTransactions(),
         db.getSuppliers(), db.getPurchases(),
+        db.getCustomers(), db.getBills(),
         db.getSettings(),
       ])
-      set({ products, transactions, suppliers, purchases, settings, loading: false })
+      set({ products, transactions, suppliers, purchases, customers, bills, settings, loading: false })
     } catch (e) {
       set({ error: 'Erro ao conectar ao banco de dados.', loading: false })
     }
@@ -52,30 +55,131 @@ export const useStore = create((set, get) => ({
   addSale: async (items, paymentMethod = 'dinheiro', discount = 0) => {
     const subtotal = items.reduce((sum, i) => sum + i.qty * i.price, 0)
     const total = Math.max(0, subtotal - discount)
+    const updates = items.map((item) => {
+      const product = get().products.find((p) => p.id === item.productId)
+      const newQty = Math.max(0, (product?.qty ?? 0) - item.qty)
+      return db.updateProduct(item.productId, { ...product, qty: newQty })
+    })
+    const txPromise = db.insertTransaction({
+      type: 'income', description: `Venda — ${items.length} item(s)`,
+      category: 'Vendas', amount: total,
+      date: new Date().toISOString().split('T')[0],
+      responsible: 'Caixa', paymentMethod,
+    })
+    const [updatedProducts, transaction] = await Promise.all([Promise.all(updates), txPromise])
+    if (!transaction) throw new Error('Falha ao registrar transação')
+    set((s) => ({
+      products: s.products.map((p) => updatedProducts.find((u) => u?.id === p.id) ?? p),
+      transactions: [transaction, ...s.transactions],
+    }))
+  },
 
+  /* ── Fiado ────────────────────────────── */
+  addFiado: async (items, customerId, discount = 0) => {
+    const subtotal = items.reduce((sum, i) => sum + i.qty * i.price, 0)
+    const total = Math.max(0, subtotal - discount)
+    const customer = get().customers.find((c) => c.id === customerId)
+
+    // Desconta estoque
     const updates = items.map((item) => {
       const product = get().products.find((p) => p.id === item.productId)
       const newQty = Math.max(0, (product?.qty ?? 0) - item.qty)
       return db.updateProduct(item.productId, { ...product, qty: newQty })
     })
 
-    const txPromise = db.insertTransaction({
-      type: 'income',
-      description: `Venda — ${items.length} item(s)`,
-      category: 'Vendas',
-      amount: total,
-      date: new Date().toISOString().split('T')[0],
-      responsible: 'Caixa',
-      paymentMethod,
+    // Monta descrição com nomes dos produtos
+    const itemsSummary = items
+      .map((i) => `${i.name}${i.qty > 1 ? ' x' + i.qty : ''}`)
+      .join(', ')
+
+    // Registra dívida
+    const debtPromise = db.insertDebt({
+      customerId, amount: total,
+      description: itemsSummary,
+      saleDate: new Date().toISOString().split('T')[0],
     })
 
-    const [updatedProducts, transaction] = await Promise.all([Promise.all(updates), txPromise])
-    if (!transaction) throw new Error('Falha ao registrar transação')
+    const [updatedProducts, debt] = await Promise.all([Promise.all(updates), debtPromise])
+    if (!debt) throw new Error('Falha ao registrar fiado')
 
     set((s) => ({
-      products: s.products.map((p) => updatedProducts.find((u) => u?.id === p.id) ?? p),
-      transactions: [transaction, ...s.transactions],
+      products:  s.products.map((p) => updatedProducts.find((u) => u?.id === p.id) ?? p),
+      customers: s.customers.map((c) => c.id === customerId
+        ? { ...c, debts: [...(c.debts ?? []), debt] }
+        : c
+      ),
     }))
+  },
+
+  /* ── Customers ────────────────────────── */
+  addCustomer: async (data) => {
+    const c = await db.insertCustomer(data)
+    if (c) set((s) => ({ customers: [...s.customers, { ...c, debts: [] }] }))
+    return c
+  },
+  updateCustomer: async (id, data) => {
+    const c = await db.updateCustomer(id, data)
+    if (c) set((s) => ({ customers: s.customers.map((x) => x.id === id ? { ...x, ...c } : x) }))
+  },
+  deleteCustomer: async (id) => {
+    await db.deleteCustomer(id)
+    set((s) => ({ customers: s.customers.filter((c) => c.id !== id) }))
+  },
+  payDebt: async (debtId, paidAmount, customerId) => {
+    const customer  = get().customers.find((c) => c.id === customerId)
+    const debtObj   = (customer?.debts ?? []).find((d) => d.id === debtId)
+    const remaining = (debtObj?.amount ?? 0) - (debtObj?.paid_amount ?? 0)
+    const isPaid    = paidAmount >= remaining
+
+    const debt = await db.payDebt(debtId, paidAmount, remaining)
+    if (!debt) return
+
+    // Registra receita no Fluxo de Caixa
+    const tx = await db.insertTransaction({
+      type:          'income',
+      description:   `Fiado recebido — ${customer?.name ?? 'Cliente'}${!isPaid ? ' (parcial)' : ''}`,
+      category:      'Fiado',
+      amount:        paidAmount,
+      date:          new Date().toISOString().split('T')[0],
+      responsible:   'Caixa',
+      paymentMethod: 'dinheiro',
+    })
+    if (tx) set((s) => ({ transactions: [tx, ...s.transactions] }))
+
+    set((s) => ({
+      customers: s.customers.map((c) => c.id === customerId
+        ? { ...c, debts: (c.debts ?? []).map((d) => d.id === debtId ? debt : d) }
+        : c
+      ),
+    }))
+  },
+
+  /* ── Bills ────────────────────────────── */
+  addBill: async (data) => {
+    const bill = await db.insertBill(data)
+    if (bill) set((s) => ({ bills: [...s.bills, bill].sort((a, b) => a.due_date.localeCompare(b.due_date)) }))
+  },
+  payBill: async (billId, amount) => {
+    const bill = await db.payBill(billId, amount)
+    if (!bill) return
+    // Insere a transação de despesa diretamente no estado (sem recarregar tudo)
+    const targetBill = get().bills.find((b) => b.id === billId)
+    if (targetBill) {
+      const tx = await db.insertTransaction({
+        type: 'expense', description: targetBill.description,
+        category: targetBill.category, amount: targetBill.amount,
+        date: new Date().toISOString().split('T')[0],
+        responsible: 'Contas', paymentMethod: 'dinheiro',
+      })
+      set((s) => ({
+        bills: s.bills.map((b) => b.id === billId ? { ...b, status: 'paid' } : b),
+        transactions: tx ? [tx, ...s.transactions] : s.transactions,
+      }))
+    }
+  },
+  deleteBill: async (id) => {
+    await db.deleteBill(id)
+    set((s) => ({ bills: s.bills.filter((b) => b.id !== id) }))
   },
 
   /* ── Suppliers ────────────────────────── */
@@ -96,96 +200,55 @@ export const useStore = create((set, get) => ({
   /* ── Purchases ────────────────────────── */
   addPurchase: async (data) => {
     const p = await db.insertPurchase(data)
-    if (p) {
-      const full = await db.getPurchases()
-      set({ purchases: full })
-    }
+    if (p) { const full = await db.getPurchases(); set({ purchases: full }) }
     return p
   },
-
   receivePurchase: async (purchaseId) => {
     const purchase = get().purchases.find((p) => p.id === purchaseId)
     if (!purchase) return
-
     const updated = await db.receivePurchase(purchaseId)
     if (!updated) throw new Error('Erro ao receber compra')
-
-    // Aumenta estoque + recalcula custo médio ponderado
     const items = purchase.items ?? []
     const stockUpdates = items.map(async (item) => {
       if (item.product_id) {
         const product = get().products.find((p) => p.id === item.product_id)
         if (!product) return null
-
-        const qtyAtual    = product.qty
-        const custoAtual  = product.cost
-        const qtyComprada = item.qty
-        const custoCompra = item.cost
-
-        // Custo médio ponderado
-        const novoQty   = qtyAtual + qtyComprada
+        const novoQty   = product.qty + item.qty
         const novoCusto = novoQty > 0
-          ? ((qtyAtual * custoAtual) + (qtyComprada * custoCompra)) / novoQty
-          : custoCompra
-
-        return db.updateProduct(item.product_id, {
-          ...product,
-          qty:  novoQty,
-          cost: parseFloat(novoCusto.toFixed(2)),
-        })
+          ? ((product.qty * product.cost) + (item.qty * item.cost)) / novoQty
+          : item.cost
+        return db.updateProduct(item.product_id, { ...product, qty: novoQty, cost: parseFloat(novoCusto.toFixed(2)) })
       } else {
-        // Produto digitado manualmente — cria no estoque
         return db.insertProduct({
-          name:        item.product_name,
-          category:    '',
-          responsible: purchase.supplier?.name ?? '',
-          qty:         item.qty,
-          minQty:      0,
-          cost:        item.cost,
-          price:       item.cost,
-          barcode:     '',
+          name: item.product_name, category: '', responsible: purchase.supplier?.name ?? '',
+          qty: item.qty, minQty: 0, cost: item.cost, price: item.cost, barcode: '',
         })
       }
     })
-
-    // Registra despesa no fluxo de caixa
     const txPromise = db.insertTransaction({
-      type: 'expense',
-      description: `Compra — ${purchase.supplier?.name ?? 'Fornecedor'}`,
-      category: 'Compras',
-      amount: purchase.total,
+      type: 'expense', description: `Compra — ${purchase.supplier?.name ?? 'Fornecedor'}`,
+      category: 'Compras', amount: purchase.total,
       date: new Date().toISOString().split('T')[0],
-      responsible: 'Estoque',
-      paymentMethod: 'dinheiro',
+      responsible: 'Estoque', paymentMethod: 'dinheiro',
     })
-
-    const [updatedProducts, transaction] = await Promise.all([
-      Promise.all(stockUpdates),
-      txPromise,
-    ])
-
+    const [updatedProducts, transaction] = await Promise.all([Promise.all(stockUpdates), txPromise])
     set((s) => {
-      const updatedProds = updatedProducts.filter(Boolean)
-      const existingIds  = updatedProds.filter((p) => s.products.find((x) => x.id === p.id)).map((p) => p.id)
-      const newProds     = updatedProds.filter((p) => !existingIds.includes(p.id))
+      const all = updatedProducts.filter(Boolean)
+      const existingIds = all.filter((p) => s.products.find((x) => x.id === p.id)).map((p) => p.id)
+      const newProds    = all.filter((p) => !existingIds.includes(p.id))
       return {
         purchases: s.purchases.map((p) => p.id === purchaseId ? { ...p, status: 'received' } : p),
-        products: [
-          ...s.products.map((p) => updatedProds.find((u) => u?.id === p.id) ?? p),
-          ...newProds,
-        ],
+        products: [...s.products.map((p) => all.find((u) => u?.id === p.id) ?? p), ...newProds],
         transactions: transaction ? [transaction, ...s.transactions] : s.transactions,
       }
     })
   },
-
   cancelPurchase: async (purchaseId) => {
     await db.cancelPurchase(purchaseId)
-    set((s) => ({
-      purchases: s.purchases.map((p) => p.id === purchaseId ? { ...p, status: 'cancelled' } : p),
-    }))
+    set((s) => ({ purchases: s.purchases.map((p) => p.id === purchaseId ? { ...p, status: 'cancelled' } : p) }))
   },
 
+  /* ── Settings ─────────────────────────── */
   updateSetting: async (key, value) => {
     await db.setSetting(key, value)
     set((s) => ({ settings: { ...s.settings, [key]: value } }))

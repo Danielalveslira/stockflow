@@ -13,6 +13,9 @@ import Sales from './pages/Sales'
 import Users from './pages/Users'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
+import Customers from './pages/Customers'
+import Bills from './pages/Bills'
+import Help from './pages/Help'
 import Purchases from './pages/Purchases'
 import Suppliers from './pages/Suppliers'
 
@@ -102,6 +105,9 @@ function AppShell({ theme, toggleTheme }) {
             <Route path="/cashflow"  element={<ProtectedRoute page="cashflow"><CashFlow /></ProtectedRoute>} />
             <Route path="/purchases" element={<ProtectedRoute page="purchases"><Purchases /></ProtectedRoute>} />
             <Route path="/suppliers" element={<ProtectedRoute page="suppliers"><Suppliers /></ProtectedRoute>} />
+            <Route path="/help" element={<ProtectedRoute page="help"><Help /></ProtectedRoute>} />
+            <Route path="/customers" element={<ProtectedRoute page="customers"><Customers /></ProtectedRoute>} />
+            <Route path="/bills" element={<ProtectedRoute page="bills"><Bills /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute page="settings"><Settings /></ProtectedRoute>} />
             <Route path="/users"     element={<ProtectedRoute page="users"><Users /></ProtectedRoute>} />
           </Routes>

@@ -100,6 +100,8 @@ function SectionTitle({ children }) {
 export default function Dashboard() {
   const products     = useStore((s) => s.products)
   const transactions = useStore((s) => s.transactions)
+  const bills        = useStore((s) => s.bills)
+  const customers    = useStore((s) => s.customers)
 
   /* ── KPIs ──────────────────────────────────── */
   const kpis = useMemo(() => {
@@ -223,6 +225,38 @@ export default function Dashboard() {
   return (
     <div className="page">
       <PageHeader title="Dashboard" subtitle="Visão geral do seu negócio" />
+
+
+      {/* Alertas de contas e fiado */}
+      {(() => {
+        const today = new Date().toISOString().split('T')[0]
+        const urgent = bills.filter((b) => b.status !== 'paid' && b.due_date <= today)
+        const week   = bills.filter((b) => { if (b.status === 'paid') return false; const d = new Date(b.due_date + 'T00:00:00'); const t = new Date(); t.setHours(0,0,0,0); const diff = Math.ceil((d-t)/(1000*60*60*24)); return diff > 0 && diff <= 7 })
+        const fiado  = customers.reduce((s,c) => s + (c.debts??[]).filter(d=>d.status!=='paid').reduce((ds,d)=>ds+(d.amount-(d.paid_amount??0)),0), 0)
+        if (!urgent.length && !week.length && !fiado) return null
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {urgent.length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--danger-dim)', borderRadius: 10, border: '1px solid var(--danger)44' }}>
+                <span style={{ fontSize: 13, color: 'var(--danger)', fontWeight: 500 }}>⚠️ {urgent.length} conta(s) vencida(s) ou vencendo hoje</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--danger)', fontFamily: 'DM Mono, monospace' }}>{urgent.reduce((s,b)=>s+b.amount,0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</span>
+              </div>
+            )}
+            {week.length > 0 && !urgent.length && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--warning-dim)', borderRadius: 10, border: '1px solid var(--warning)44' }}>
+                <span style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 500 }}>📅 {week.length} conta(s) vencem nos próximos 7 dias</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--warning)', fontFamily: 'DM Mono, monospace' }}>{week.reduce((s,b)=>s+b.amount,0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</span>
+              </div>
+            )}
+            {fiado > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--warning-dim)', borderRadius: 10, border: '1px solid var(--warning)44' }}>
+                <span style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 500 }}>📒 Total em fiado a receber</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--warning)', fontFamily: 'DM Mono, monospace' }}>{fiado.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</span>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* KPIs */}
       <div className="grid-4">

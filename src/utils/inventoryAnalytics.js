@@ -45,15 +45,14 @@ export function calcTurnover(products, transactions, days = 30) {
     .filter((t) => t.type === 'income' && t.category === 'Vendas' && new Date(t.date) >= cutoff)
     .reduce((s, t) => s + t.amount, 0)
 
+  // Calculado uma vez fora do loop (era O(n²), agora O(n))
+  const totalStockValue = products.reduce((s, x) => s + x.qty * x.price, 0)
+
   return products.reduce((map, p) => {
     const avgStock = Math.max(p.qty, 1)
-    // Estimativa: se o produto representa X% do valor do estoque,
-    // provavelmente gerou X% das vendas
-    const totalStockValue = products.reduce((s, x) => s + x.qty * x.price, 0)
     const share = totalStockValue > 0 ? (p.qty * p.price) / totalStockValue : 0
     const estimatedSalesQty = p.price > 0 ? (totalSales * share) / p.price : 0
     const turnover = estimatedSalesQty / avgStock
-
     map[p.id] = parseFloat(turnover.toFixed(2))
     return map
   }, {})

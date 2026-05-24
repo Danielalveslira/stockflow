@@ -12,6 +12,10 @@ const NAV = [
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> },
   { to: '/inventory', label: 'Estoque', page: 'inventory',
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8l-9-4-9 4v8l9 4 9-4z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> },
+  { to: '/customers', label: 'Clientes', page: 'customers',
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
+  { to: '/bills', label: 'Contas a Pagar', page: 'bills',
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> },
   { to: '/cashflow', label: 'Fluxo de Caixa', page: 'cashflow',
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg> },
   { to: '/purchases', label: 'Compras', page: 'purchases',
@@ -20,6 +24,8 @@ const NAV = [
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> },
   { to: '/settings', label: 'Ajustes', page: 'settings',
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
+  { to: '/help', label: 'Ajuda', page: 'help',
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
   { to: '/users', label: 'Usuários', page: 'users',
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
 ]
@@ -34,10 +40,31 @@ const linkStyle = ({ isActive }) => ({
 })
 
 export default function Sidebar({ open, onClose, theme, toggleTheme }) {
-  const alerts  = useStore((s) => s.products.filter((p) => p.qty === 0 || p.qty <= p.minQty).length)
-  const profile = useAuthStore((s) => s.profile)
-  const can     = useAuthStore((s) => s.can)
-  const logout  = useAuthStore((s) => s.logout)
+  const alerts   = useStore((s) => s.products.filter((p) => p.qty === 0 || p.qty <= p.minQty).length)
+  const bills    = useStore((s) => s.bills)
+  const profile  = useAuthStore((s) => s.profile)
+  const can      = useAuthStore((s) => s.can)
+  const logout   = useAuthStore((s) => s.logout)
+
+  // Contas críticas: vencidas ou vencendo em até 3 dias
+  const today = new Date(); today.setHours(0,0,0,0)
+  const billsUrgent   = bills.filter((b) => {
+    if (b.status === 'paid') return false
+    const d = new Date(b.due_date + 'T00:00:00')
+    const days = Math.ceil((d - today) / (1000 * 60 * 60 * 24))
+    return days <= 3
+  }).length
+  const billsWarning  = bills.filter((b) => {
+    if (b.status === 'paid') return false
+    const d = new Date(b.due_date + 'T00:00:00')
+    const days = Math.ceil((d - today) / (1000 * 60 * 60 * 24))
+    return days > 3 && days <= 7
+  }).length
+  const billsBadge    = billsUrgent > 0
+    ? { count: billsUrgent, bg: 'var(--danger-dim)', color: 'var(--danger)' }
+    : billsWarning > 0
+      ? { count: billsWarning, bg: 'var(--warning-dim)', color: 'var(--warning)' }
+      : null
 
   return (
     <aside
@@ -74,6 +101,11 @@ export default function Sidebar({ open, onClose, theme, toggleTheme }) {
             {to === '/inventory' && alerts > 0 && (
               <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--warning-dim)', color: 'var(--warning)', borderRadius: 99, padding: '1px 6px' }}>
                 {alerts}
+              </span>
+            )}
+            {to === '/bills' && billsBadge && (
+              <span style={{ fontSize: 10, fontWeight: 700, background: billsBadge.bg, color: billsBadge.color, borderRadius: 99, padding: '1px 6px' }}>
+                {billsBadge.count}
               </span>
             )}
           </NavLink>
